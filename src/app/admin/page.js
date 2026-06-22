@@ -11,15 +11,26 @@ export default function AdminDashboard() {
   const [searchTerm, setSearchTerm] = useState('');
   const [dateFilter, setDateFilter] = useState('');
   const [selectedPhoto, setSelectedPhoto] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null); // Record yang akan dihapus (untuk modal konfirmasi)
   
   const [isLoading, setIsLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [notification, setNotification] = useState(null); // { type: 'success'|'error', text: '' }
 
   // Cek apakah admin sudah login (cookie masih valid) saat halaman dibuka
   useEffect(() => {
     checkSession();
   }, []);
+
+  // Auto-hide notification setelah 4 detik
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => setNotification(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
 
   const checkSession = async () => {
     try {
@@ -28,6 +39,9 @@ export default function AdminDashboard() {
         const data = await res.json();
         setRecords(data.records || []);
         setIsLoggedIn(true);
+      } else if (res.status === 401) {
+        // Sesi kadaluarsa — paksa login ulang
+        setIsLoggedIn(false);
       }
     } catch (err) {
       console.error('Gagal mengecek sesi:', err);
@@ -75,6 +89,7 @@ export default function AdminDashboard() {
         setRecords(data.records || []);
       } else if (res.status === 401) {
         setIsLoggedIn(false);
+        setNotification({ type: 'error', text: 'Sesi Anda telah kadaluarsa. Silakan login ulang.' });
       }
     } catch (err) {
       console.error('Gagal memuat data:', err);
@@ -91,6 +106,39 @@ export default function AdminDashboard() {
       setPassword('');
     } catch (err) {
       console.error('Gagal logout:', err);
+    }
+  };
+
+  // Menghapus data absensi setelah konfirmasi
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+
+    setDeleteLoading(true);
+    try {
+      const res = await fetch('/api/admin/delete', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: deleteTarget.id }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        // Hapus dari state lokal agar UI langsung terupdate tanpa perlu fetch ulang
+        setRecords((prev) => prev.filter((r) => r.id !== deleteTarget.id));
+        setNotification({ type: 'success', text: `Data absensi "${deleteTarget.name}" berhasil dihapus.` });
+      } else if (res.status === 401) {
+        setIsLoggedIn(false);
+        setNotification({ type: 'error', text: 'Sesi Anda telah kadaluarsa. Silakan login ulang.' });
+      } else {
+        setNotification({ type: 'error', text: data.error || 'Gagal menghapus data.' });
+      }
+    } catch (err) {
+      console.error('Gagal menghapus data:', err);
+      setNotification({ type: 'error', text: 'Koneksi gagal saat menghapus data.' });
+    } finally {
+      setDeleteLoading(false);
+      setDeleteTarget(null);
     }
   };
 
@@ -323,6 +371,27 @@ export default function AdminDashboard() {
         </div>
       </header>
 
+      {/* Notification Banner */}
+      {notification && (
+        <div 
+          className={`alert-banner alert-banner-${notification.type}`} 
+          style={{ marginBottom: '1.5rem' }}
+        >
+          {notification.type === 'success' ? (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M20 6L9 17L4 12" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          ) : (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+          )}
+          <span>{notification.text}</span>
+        </div>
+      )}
+
       {/* Overview Cards Row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
         <div className="glass-card" style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
@@ -437,6 +506,7 @@ export default function AdminDashboard() {
                   <th>Tanggal</th>
                   <th>Jam</th>
                   <th>Status</th>
+                  <th style={{ textAlign: 'center', width: '80px' }}>Aksi</th>
                 </tr>
               </thead>
               <tbody>
@@ -473,6 +543,20 @@ export default function AdminDashboard() {
                     <td style={{ fontFamily: 'monospace' }}>{formatTime(record.timestamp)}</td>
                     <td>
                       <span className="badge badge-success">Hadir</span>
+                    </td>
+                    <td style={{ textAlign: 'center' }}>
+                      <button
+                        className="btn-icon-delete"
+                        onClick={() => setDeleteTarget(record)}
+                        title="Hapus data absensi ini"
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="3 6 5 6 21 6" />
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                          <line x1="10" y1="11" x2="10" y2="17" />
+                          <line x1="14" y1="11" x2="14" y2="17" />
+                        </svg>
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -516,10 +600,79 @@ export default function AdminDashboard() {
         </div>
       )}
 
+      {/* Modal Konfirmasi Hapus Data */}
+      {deleteTarget && (
+        <div className="modal-overlay" onClick={() => !deleteLoading && setDeleteTarget(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '440px' }}>
+            <div className="modal-header" style={{ borderBottom: '1px solid var(--border-color)' }}>
+              <h3 style={{ fontSize: '1.1rem', color: 'var(--error)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                  <line x1="12" y1="9" x2="12" y2="13" />
+                  <line x1="12" y1="17" x2="12.01" y2="17" />
+                </svg>
+                Konfirmasi Hapus
+              </h3>
+              <button 
+                onClick={() => !deleteLoading && setDeleteTarget(null)}
+                style={{ 
+                  background: 'none', 
+                  border: 'none', 
+                  color: 'var(--text-secondary)', 
+                  cursor: deleteLoading ? 'not-allowed' : 'pointer',
+                  fontSize: '1.25rem'
+                }}
+                disabled={deleteLoading}
+              >
+                &times;
+              </button>
+            </div>
+            <div className="modal-body" style={{ padding: '1.5rem' }}>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.92rem', marginBottom: '1rem', lineHeight: '1.6' }}>
+                Apakah Anda yakin ingin <strong style={{ color: 'var(--error)' }}>menghapus permanen</strong> data absensi berikut ini? Tindakan ini <strong>tidak dapat dibatalkan</strong>.
+              </p>
+
+              <div style={{ 
+                backgroundColor: 'var(--bg-tertiary)', 
+                borderRadius: 'var(--radius-md)', 
+                padding: '1rem 1.25rem',
+                border: '1px solid var(--border-color)',
+                marginBottom: '1.5rem'
+              }}>
+                <p style={{ fontWeight: '600', color: 'var(--text-primary)', marginBottom: '0.35rem' }}>
+                  {deleteTarget.name}
+                </p>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                  {formatDate(deleteTarget.timestamp)} — {formatTime(deleteTarget.timestamp)}
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => setDeleteTarget(null)}
+                  disabled={deleteLoading}
+                  style={{ padding: '0.65rem 1.25rem', fontSize: '0.9rem' }}
+                >
+                  Batal
+                </button>
+                <button
+                  className="btn btn-danger"
+                  onClick={handleDelete}
+                  disabled={deleteLoading}
+                  style={{ padding: '0.65rem 1.25rem', fontSize: '0.9rem' }}
+                >
+                  {deleteLoading ? 'Menghapus...' : 'Ya, Hapus Data'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <footer>
         &copy; {new Date().getFullYear()} AbsenKu Cloud. Panel Dashboard Admin Absensi.
       </footer>
-
 
     </div>
   );

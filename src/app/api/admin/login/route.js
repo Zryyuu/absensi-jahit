@@ -24,7 +24,7 @@ export async function POST(request) {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'strict',
-        maxAge: 60 * 60 * 24, // Sesi berlaku 1 hari
+        maxAge: 60 * 60 * 2, // Sesi berlaku 2 jam — setelah itu harus login ulang
         path: '/',
       });
 
