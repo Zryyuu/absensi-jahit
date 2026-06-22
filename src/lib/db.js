@@ -3,18 +3,40 @@ import path from 'path';
 import { put } from '@vercel/blob';
 import { kv } from '@vercel/kv';
 
-// Helper untuk mengecek apakah kita harus menggunakan Cloud Vercel
+// Memeriksa variabel environment yang dibutuhkan
+const getMissingEnvVars = () => {
+  const missing = [];
+  if (!process.env.KV_REST_API_URL) missing.push("KV_REST_API_URL");
+  if (!process.env.KV_REST_API_TOKEN) missing.push("KV_REST_API_TOKEN");
+  if (!process.env.BLOB_READ_WRITE_TOKEN) missing.push("BLOB_READ_WRITE_TOKEN");
+  return missing;
+};
+
 const isCloudEnabled = () => {
-  return !!(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN && process.env.BLOB_READ_WRITE_TOKEN);
+  return getMissingEnvVars().length === 0;
+};
+
+// Cek apakah kode berjalan di server produksi Vercel
+const isProduction = () => {
+  return process.env.NODE_ENV === 'production' || !!process.env.VERCEL;
 };
 
 /**
  * Mengunggah/menyimpan foto absensi.
- * @param {string} photoBase64 - Foto dalam format base64 (data:image/jpeg;base64,...)
- * @returns {Promise<string>} URL publik foto yang bisa diakses
+ * @param {string} photoBase64 - Foto dalam format base64
+ * @returns {Promise<string>} URL publik foto
  */
 export async function uploadPhoto(photoBase64) {
-  // Membersihkan prefix base64 jika ada
+  const missingVars = getMissingEnvVars();
+
+  // Jika di Vercel (Produksi), paksa menggunakan Cloud Storage
+  if (isProduction() && missingVars.length > 0) {
+    throw new Error(
+      `Penyimpanan Cloud gagal. Variabel Environment berikut belum terdeteksi di Vercel: [${missingVars.join(', ')}]. Pastikan Anda sudah menghubungkan KV/Upstash & Blob di tab Storage Vercel.`
+    );
+  }
+
+  // Membersihkan prefix base64
   const matches = photoBase64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
   let base64Data = photoBase64;
   let mimeType = 'image/jpeg';
@@ -38,7 +60,6 @@ export async function uploadPhoto(photoBase64) {
     // Simpan ke lokal (public/uploads)
     const uploadDir = path.join(process.cwd(), 'public', 'uploads');
     
-    // Pastikan folder public/uploads ada
     try {
       await fs.access(uploadDir);
     } catch {
@@ -55,7 +76,7 @@ export async function uploadPhoto(photoBase64) {
  * Menyimpan rekaman absensi ke database.
  * @param {string} name - Nama karyawan
  * @param {string} photoUrl - URL foto karyawan
- * @returns {Promise<object>} Record absensi yang disimpan
+ * @returns {Promise<object>} Record absensi
  */
 export async function saveAttendance(name, photoUrl) {
   const timestamp = new Date().toISOString();
@@ -66,15 +87,21 @@ export async function saveAttendance(name, photoUrl) {
     timestamp,
   };
 
+  const missingVars = getMissingEnvVars();
+  if (isProduction() && missingVars.length > 0) {
+    throw new Error(
+      `Database Cloud gagal. Variabel Environment berikut belum terdeteksi di Vercel: [${missingVars.join(', ')}].`
+    );
+  }
+
   if (isCloudEnabled()) {
-    // Simpan ke Vercel KV (lpush agar data baru berada di urutan teratas)
+    // Simpan ke Vercel KV (lpush)
     await kv.lpush('attendance_records', record);
   } else {
     // Simpan ke file JSON lokal (src/data/db.json)
     const dataDir = path.join(process.cwd(), 'src', 'data');
     const filePath = path.join(dataDir, 'db.json');
 
-    // Pastikan folder src/data ada
     try {
       await fs.access(dataDir);
     } catch {
@@ -89,7 +116,6 @@ export async function saveAttendance(name, photoUrl) {
       // File belum ada, inisialisasi kosong
     }
 
-    // Masukkan ke awal array (descending order)
     records.unshift(record);
     await fs.writeFile(filePath, JSON.stringify(records, null, 2));
   }
@@ -103,7 +129,6 @@ export async function saveAttendance(name, photoUrl) {
  */
 export async function getAttendanceRecords() {
   if (isCloudEnabled()) {
-    // Ambil semua data dari Redis list
     const records = await kv.lrange('attendance_records', 0, -1);
     return records || [];
   } else {
