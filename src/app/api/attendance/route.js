@@ -24,7 +24,7 @@ export async function POST(request) {
   } catch (error) {
     console.error('API Error (Attendance):', error);
     return NextResponse.json(
-      { error: 'Gagal memproses absensi. Pastikan kamera diizinkan dan coba lagi.' },
+      { error: `Gagal memproses absensi: ${error.message || error.toString()}` },
       { status: 500 }
     );
   }
