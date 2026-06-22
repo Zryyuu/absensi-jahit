@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import ExcelJS from 'exceljs';
 
 export default function AdminDashboard() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -104,16 +105,19 @@ export default function AdminDashboard() {
     });
   };
 
-  // Memformat waktu ISO ke format Jam:Menit:Detik WIB
+  // Memformat waktu ISO ke format "HH.MM WIB" (tanpa detik, tanpa jam 00)
   const formatTime = (isoString) => {
     if (!isoString) return '-';
     const date = new Date(isoString);
-    return date.toLocaleTimeString('id-ID', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    }) + ' WIB';
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    return `${hours}.${minutes} WIB`;
+  };
+
+  // Membuat URL foto yang aman melalui proxy API admin
+  const getSecurePhotoUrl = (photoUrl) => {
+    if (!photoUrl) return '';
+    return `/api/admin/photo?url=${encodeURIComponent(photoUrl)}`;
   };
 
   // Memfilter data berdasarkan input nama dan filter tanggal
@@ -129,31 +133,97 @@ export default function AdminDashboard() {
     return matchName && matchDate;
   });
 
-  // Ekspor data ke CSV
-  const exportToCSV = () => {
+  // Ekspor data ke Excel (.xlsx) dengan format rapi (auto-fit kolom & baris)
+  const exportToExcel = async () => {
     if (filteredRecords.length === 0) return;
 
-    // Header CSV dengan BOM UTF-8 dan deklarasi pemisah koma agar Excel otomatis memisahkan kolom
-    let csvContent = '\uFEFFsep=,\n';
-    csvContent += 'No,ID Absensi,Nama Karyawan,Tanggal,Waktu,URL Foto\n';
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'AbsenKu Cloud';
+    workbook.created = new Date();
 
-    // Baris Data
-    filteredRecords.forEach((rec, index) => {
-      const dateStr = formatDate(rec.timestamp).replace(/,/g, '');
-      const timeStr = formatTime(rec.timestamp).replace(/,/g, '');
-      const row = `${index + 1},${rec.id},"${rec.name.replace(/"/g, '""')}",${dateStr},${timeStr},"${rec.photoUrl}"`;
-      csvContent += row + '\n';
+    const sheet = workbook.addWorksheet('Rekap Absensi', {
+      properties: { defaultRowHeight: 20 },
     });
 
-    // Buat file Blob CSV secara aman untuk didownload
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    // Definisikan kolom
+    const columns = [
+      { header: 'No', key: 'no', width: 6 },
+      { header: 'Nama Karyawan', key: 'nama', width: 28 },
+      { header: 'Tanggal', key: 'tanggal', width: 24 },
+      { header: 'Waktu', key: 'waktu', width: 14 },
+      { header: 'Status', key: 'status', width: 12 },
+    ];
+    sheet.columns = columns;
+
+    // Style header row
+    const headerRow = sheet.getRow(1);
+    headerRow.height = 28;
+    headerRow.eachCell((cell) => {
+      cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF10B981' } };
+      cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FF0D9668' } },
+        bottom: { style: 'thin', color: { argb: 'FF0D9668' } },
+        left: { style: 'thin', color: { argb: 'FF0D9668' } },
+        right: { style: 'thin', color: { argb: 'FF0D9668' } },
+      };
+    });
+
+    // Tambahkan baris data
+    filteredRecords.forEach((rec, index) => {
+      const row = sheet.addRow({
+        no: index + 1,
+        nama: rec.name,
+        tanggal: formatDate(rec.timestamp),
+        waktu: formatTime(rec.timestamp),
+        status: 'Hadir',
+      });
+
+      row.height = 22;
+      row.eachCell((cell, colNumber) => {
+        cell.font = { name: 'Calibri', size: 11 };
+        cell.alignment = { vertical: 'middle', horizontal: colNumber === 2 ? 'left' : 'center' };
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+          bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+          left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+          right: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        };
+      });
+
+      // Zebra striping untuk baris genap
+      if (index % 2 === 1) {
+        row.eachCell((cell) => {
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
+        });
+      }
+    });
+
+    // Auto-fit lebar kolom berdasarkan panjang isi terpanjang
+    sheet.columns.forEach((col) => {
+      let maxLen = col.header ? col.header.length : 10;
+      col.eachCell({ includeEmpty: false }, (cell) => {
+        const cellLen = cell.value ? cell.value.toString().length : 0;
+        if (cellLen > maxLen) maxLen = cellLen;
+      });
+      // Tambahkan padding 4 karakter agar tidak terlalu mepet
+      col.width = maxLen + 4;
+    });
+
+    // Generate dan download file
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `rekap_absensi_${new Date().toISOString().split('T')[0]}.csv`);
+    link.href = url;
+    link.download = `rekap_absensi_${new Date().toISOString().split('T')[0]}.xlsx`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   // Tampilan Loading Awal saat memeriksa Sesi
@@ -243,7 +313,7 @@ export default function AdminDashboard() {
           </svg>
           Dashboard Admin
         </div>
-        <div style={{ display: 'flex', gap: '1rem' }}>
+        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
           <Link href="/" className="btn btn-secondary" style={{ fontSize: '0.85rem', padding: '0.5rem 1rem' }}>
             Halaman Absen
           </Link>
@@ -271,7 +341,7 @@ export default function AdminDashboard() {
         </div>
 
         <div className="glass-card" style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
-          <div style={{ backgroundColor: 'var(--accent-secondary-glow)', color: 'var(--accent-secondary)', padding: '0.75rem', borderRadius: '12px' }}>
+          <div style={{ backgroundColor: 'rgba(14, 165, 233, 0.1)', color: 'var(--accent-secondary)', padding: '0.75rem', borderRadius: '12px' }}>
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
               <line x1="16" y1="2" x2="16" y2="6" />
@@ -322,11 +392,11 @@ export default function AdminDashboard() {
           )}
         </div>
 
-        {/* Action Buttons */}
-        <div style={{ display: 'flex', gap: '1rem' }} className="no-print">
+        {/* Action Buttons - Excel export */}
+        <div style={{ display: 'flex', gap: '1rem' }}>
           <button
             className="btn btn-primary"
-            onClick={exportToCSV}
+            onClick={exportToExcel}
             disabled={filteredRecords.length === 0}
             style={{ padding: '0.7rem 1.25rem', fontSize: '0.9rem' }}
           >
@@ -335,7 +405,7 @@ export default function AdminDashboard() {
               <polyline points="7 10 12 15 17 10"/>
               <line x1="12" y1="15" x2="12" y2="3"/>
             </svg>
-            Ekspor CSV
+            Ekspor Excel
           </button>
         </div>
       </div>
@@ -365,7 +435,7 @@ export default function AdminDashboard() {
                   <th>Foto</th>
                   <th>Nama Karyawan</th>
                   <th>Tanggal</th>
-                  <th>Jam Server</th>
+                  <th>Jam</th>
                   <th>Status</th>
                 </tr>
               </thead>
@@ -380,17 +450,21 @@ export default function AdminDashboard() {
                           height: '52px', 
                           borderRadius: '8px', 
                           overflow: 'hidden', 
-                          border: '1px solid var(--glass-border)',
+                          border: '1px solid var(--border-color)',
                           cursor: 'zoom-in',
-                          boxShadow: '0 2px 5px rgba(0,0,0,0.2)'
+                          boxShadow: '0 2px 5px rgba(0,0,0,0.08)'
                         }}
                         onClick={() => setSelectedPhoto(record)}
                         title="Klik untuk memperbesar foto"
                       >
                         <img 
-                          src={record.photoUrl} 
+                          src={getSecurePhotoUrl(record.photoUrl)} 
                           alt={record.name}
                           style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                          onError={(e) => {
+                            e.target.style.display = 'none';
+                            e.target.parentElement.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;background:#f1f5f9;color:#94a3b8;font-size:0.65rem;text-align:center;padding:4px;">Foto</div>';
+                          }}
                         />
                       </div>
                     </td>
@@ -427,17 +501,16 @@ export default function AdminDashboard() {
                 &times;
               </button>
             </div>
-            <div className="modal-body" style={{ padding: 0, backgroundColor: '#090d16', display: 'flex', justifyContent: 'center' }}>
+            <div className="modal-body" style={{ padding: 0, backgroundColor: '#f1f5f9', display: 'flex', justifyContent: 'center' }}>
               <img 
-                src={selectedPhoto.photoUrl} 
+                src={getSecurePhotoUrl(selectedPhoto.photoUrl)} 
                 alt={selectedPhoto.name}
                 style={{ width: '100%', maxHeight: '450px', objectFit: 'contain' }}
               />
             </div>
-            <div style={{ padding: '1.25rem', borderTop: '1px solid var(--glass-border)', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+            <div style={{ padding: '1.25rem', borderTop: '1px solid var(--border-color)', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
               <p><strong>Nama:</strong> {selectedPhoto.name}</p>
-              <p><strong>ID Record:</strong> {selectedPhoto.id}</p>
-              <p><strong>Waktu Absen:</strong> {formatDate(selectedPhoto.timestamp)} - {formatTime(selectedPhoto.timestamp)}</p>
+              <p><strong>Waktu Absen:</strong> {formatDate(selectedPhoto.timestamp)} — {formatTime(selectedPhoto.timestamp)}</p>
             </div>
           </div>
         </div>
