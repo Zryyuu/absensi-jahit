@@ -133,30 +133,27 @@ export default function AdminDashboard() {
   const exportToCSV = () => {
     if (filteredRecords.length === 0) return;
 
-    // Header CSV
-    let csvContent = 'data:text/csv;charset=utf-8,';
+    // Header CSV dengan BOM UTF-8 dan deklarasi pemisah koma agar Excel otomatis memisahkan kolom
+    let csvContent = '\uFEFFsep=,\n';
     csvContent += 'No,ID Absensi,Nama Karyawan,Tanggal,Waktu,URL Foto\n';
 
     // Baris Data
     filteredRecords.forEach((rec, index) => {
       const dateStr = formatDate(rec.timestamp).replace(/,/g, '');
-      const timeStr = formatTime(rec.timestamp);
-      const row = `${index + 1},${rec.id},"${rec.name}",${dateStr},${timeStr},"${rec.photoUrl}"`;
+      const timeStr = formatTime(rec.timestamp).replace(/,/g, '');
+      const row = `${index + 1},${rec.id},"${rec.name.replace(/"/g, '""')}",${dateStr},${timeStr},"${rec.photoUrl}"`;
       csvContent += row + '\n';
     });
 
-    // Buat link download secara dinamis
-    const encodedUri = encodeURI(csvContent);
+    // Buat file Blob CSV secara aman untuk didownload
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
+    link.setAttribute('href', url);
     link.setAttribute('download', `rekap_absensi_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  };
-
-  const handlePrint = () => {
-    window.print();
   };
 
   // Tampilan Loading Awal saat memeriksa Sesi
@@ -327,19 +324,6 @@ export default function AdminDashboard() {
 
         {/* Action Buttons */}
         <div style={{ display: 'flex', gap: '1rem' }} className="no-print">
-          <button
-            className="btn btn-secondary"
-            onClick={handlePrint}
-            disabled={filteredRecords.length === 0}
-            style={{ padding: '0.7rem 1.25rem', fontSize: '0.9rem' }}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="6 9 6 2 18 2 18 9"/>
-              <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
-              <rect x="6" y="14" width="12" height="8"/>
-            </svg>
-            Cetak
-          </button>
           <button
             className="btn btn-primary"
             onClick={exportToCSV}
