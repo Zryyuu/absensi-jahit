@@ -520,38 +520,7 @@ export default function AdminDashboard() {
         &copy; {new Date().getFullYear()} AbsenKu Cloud. Panel Dashboard Admin Absensi.
       </footer>
 
-      {/* CSS Khusus untuk Print Halaman */}
-      <style jsx global>{`
-        @media print {
-          body {
-            background: #ffffff !important;
-            color: #000000 !important;
-          }
-          .glass-card {
-            background: none !important;
-            border: none !important;
-            box-shadow: none !important;
-            padding: 0 !important;
-          }
-          .no-print, header, footer, .btn, input {
-            display: none !important;
-          }
-          .modern-table th {
-            background: #f1f5f9 !important;
-            color: #000000 !important;
-            border-bottom: 2px solid #000000 !important;
-          }
-          .modern-table td {
-            color: #000000 !important;
-            border-bottom: 1px solid #e2e8f0 !important;
-          }
-          .container {
-            max-width: 100% !important;
-            padding: 0 !important;
-            margin: 0 !important;
-          }
-        }
-      `}</style>
+
     </div>
   );
 }
