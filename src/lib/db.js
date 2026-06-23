@@ -80,11 +80,35 @@ export async function uploadPhoto(photoBase64) {
  */
 export async function saveAttendance(name, photoUrl) {
   const timestamp = new Date().toISOString();
+  
+  // Hitung status (Hadir atau Telat) berdasarkan pengaturan jam masuk
+  let status = 'Hadir';
+  try {
+    const settings = await getSettings();
+    const lateTimeStr = settings.lateTime || '08:00';
+    
+    // Dapatkan waktu Jakarta (WIB) dari timestamp
+    const dateObj = new Date(timestamp);
+    const jktTimeStr = dateObj.toLocaleTimeString('en-US', {
+      timeZone: 'Asia/Jakarta',
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    
+    if (jktTimeStr > lateTimeStr) {
+      status = 'Telat';
+    }
+  } catch (err) {
+    console.warn('Gagal memverifikasi status telat:', err.message);
+  }
+
   const record = {
     id: `rec-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
     name,
     photoUrl,
     timestamp,
+    status,
   };
 
   const missingVars = getMissingEnvVars();
@@ -207,5 +231,74 @@ export async function deleteAttendanceRecord(id) {
   }
 
   return true;
+}
+
+/**
+ * Mengambil pengaturan absensi (daftar karyawan dan jam masuk).
+ * @returns {Promise<object>} Object pengaturan
+ */
+export async function getSettings() {
+  const defaultSettings = {
+    employees: [
+      { name: "Adel", addedAt: "2026-06-23" },
+      { name: "Fiki", addedAt: "2026-06-23" },
+      { name: "Dimas", addedAt: "2026-06-23" },
+      { name: "Andre", addedAt: "2026-06-23" },
+      { name: "Farel", addedAt: "2026-06-23" },
+      { name: "Agel", addedAt: "2026-06-23" },
+      { name: "Izah", addedAt: "2026-06-23" },
+      { name: "Yudhi", addedAt: "2026-06-23" },
+      { name: "Mitha", addedAt: "2026-06-23" },
+      { name: "Riski", addedAt: "2026-06-23" }
+    ],
+    lateTime: '08:15',
+  };
+
+  if (isCloudEnabled()) {
+    try {
+      const data = await kv.get('attendance_settings');
+      return data || defaultSettings;
+    } catch (err) {
+      console.error('Gagal mengambil pengaturan dari KV:', err);
+      return defaultSettings;
+    }
+  } else {
+    const filePath = path.join(process.cwd(), 'src', 'data', 'settings.json');
+    try {
+      const fileData = await fs.readFile(filePath, 'utf-8');
+      return JSON.parse(fileData);
+    } catch {
+      return defaultSettings;
+    }
+  }
+}
+
+/**
+ * Menyimpan pengaturan absensi.
+ * @param {object} settingsObject - Object berisi employees dan lateTime
+ * @returns {Promise<object>} Object pengaturan yang disimpan
+ */
+export async function saveSettings(settingsObject) {
+  const settings = {
+    employees: settingsObject.employees || [],
+    lateTime: settingsObject.lateTime || '08:00',
+  };
+
+  if (isCloudEnabled()) {
+    await kv.set('attendance_settings', settings);
+  } else {
+    const dataDir = path.join(process.cwd(), 'src', 'data');
+    const filePath = path.join(dataDir, 'settings.json');
+
+    try {
+      await fs.access(dataDir);
+    } catch {
+      await fs.mkdir(dataDir, { recursive: true });
+    }
+
+    await fs.writeFile(filePath, JSON.stringify(settings, null, 2));
+  }
+
+  return settings;
 }
 

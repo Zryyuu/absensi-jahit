@@ -22,6 +22,14 @@ export default function AdminDashboard() {
   const [currentPage, setCurrentPage] = useState(1);
   const [showExportDropdown, setShowExportDropdown] = useState(false);
   const [selectedExportYear, setSelectedExportYear] = useState(new Date().getFullYear());
+  
+  // State Pengaturan
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [settingsEmployees, setSettingsEmployees] = useState([]);
+  const [settingsLateTime, setSettingsLateTime] = useState('08:15');
+  const [newEmployeeName, setNewEmployeeName] = useState('');
+  const [settingsLoading, setSettingsLoading] = useState(false);
+
   const [isLoading, setIsLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -44,6 +52,80 @@ export default function AdminDashboard() {
     setCurrentPage(1);
   }, [searchTerm, dateFilter]);
 
+  const fetchSettings = async () => {
+    try {
+      const res = await fetch('/api/admin/settings');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.settings) {
+          setSettingsEmployees(data.settings.employees || []);
+          setSettingsLateTime(data.settings.lateTime || '08:15');
+        }
+      }
+    } catch (err) {
+      console.error('Gagal mengambil pengaturan:', err);
+    }
+  };
+
+  const handleSaveSettings = async (e) => {
+    if (e) e.preventDefault();
+    setSettingsLoading(true);
+    try {
+      const res = await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          employees: settingsEmployees,
+          lateTime: settingsLateTime,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setNotification({ type: 'success', text: 'Pengaturan berhasil disimpan!' });
+        setShowSettingsModal(false);
+      } else {
+        setNotification({ type: 'error', text: data.error || 'Gagal menyimpan pengaturan.' });
+      }
+    } catch (err) {
+      setNotification({ type: 'error', text: 'Koneksi gagal saat menyimpan pengaturan.' });
+    } finally {
+      setSettingsLoading(false);
+    }
+  };
+
+  const handleAddEmployee = () => {
+    const trimmed = newEmployeeName.trim();
+    if (!trimmed) return;
+    const exists = settingsEmployees.some(emp => {
+      const nameVal = typeof emp === 'string' ? emp : emp.name;
+      return nameVal.toLowerCase() === trimmed.toLowerCase();
+    });
+    if (exists) {
+      alert('Nama karyawan ini sudah terdaftar.');
+      return;
+    }
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
+    const newEmpObj = { name: trimmed, addedAt: todayStr };
+    setSettingsEmployees((prev) => {
+      const updated = [...prev, newEmpObj];
+      return updated.sort((a, b) => {
+        const nameA = typeof a === 'string' ? a : a.name;
+        const nameB = typeof b === 'string' ? b : b.name;
+        return nameA.localeCompare(nameB);
+      });
+    });
+    setNewEmployeeName('');
+  };
+
+  const handleRemoveEmployee = (nameToRemove) => {
+    if (confirm(`Yakin ingin menghapus "${nameToRemove}" dari daftar karyawan?`)) {
+      setSettingsEmployees((prev) => prev.filter(emp => {
+        const nameVal = typeof emp === 'string' ? emp : emp.name;
+        return nameVal !== nameToRemove;
+      }));
+    }
+  };
+
   const checkSession = async () => {
     try {
       const res = await fetch('/api/admin/records');
@@ -51,6 +133,7 @@ export default function AdminDashboard() {
         const data = await res.json();
         setRecords(data.records || []);
         setIsLoggedIn(true);
+        fetchSettings();
       } else if (res.status === 401) {
         setIsLoggedIn(false);
       }
@@ -76,6 +159,7 @@ export default function AdminDashboard() {
       if (res.ok) {
         setIsLoggedIn(true);
         await fetchRecords();
+        await fetchSettings();
       } else {
         setError(data.error || 'Password salah.');
       }
@@ -161,16 +245,71 @@ export default function AdminDashboard() {
     return `/api/admin/photo?url=${encodeURIComponent(photoUrl)}`;
   };
 
-  // Filter records berdasarkan nama dan tanggal
-  const filteredRecords = records.filter((rec) => {
-    const matchName = rec.name.toLowerCase().includes(searchTerm.toLowerCase());
-    let matchDate = true;
+  // Filter records berdasarkan nama dan tanggal (termasuk status Tidak Hadir jika tanggal difilter)
+  const filteredRecords = (() => {
+    // 1. Dapatkan check-in riil yang cocok dengan filter nama & tanggal
+    const actualMatches = records.filter((rec) => {
+      const matchName = rec.name.toLowerCase().includes(searchTerm.toLowerCase());
+      let matchDate = true;
+      if (dateFilter) {
+        const recDate = new Date(rec.timestamp).toISOString().split('T')[0];
+        matchDate = recDate === dateFilter;
+      }
+      return matchName && matchDate;
+    });
+
+    // 2. Jika filter tanggal AKTIF, gabungkan dengan karyawan yang "Tidak Hadir" hari itu
     if (dateFilter) {
-      const recDate = new Date(rec.timestamp).toISOString().split('T')[0];
-      matchDate = recDate === dateFilter;
+      // Dapatkan tanggal hari ini di Jakarta (WIB)
+      const now = new Date();
+      const todayJkt = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }); // YYYY-MM-DD format
+      
+      const hourStr = now.toLocaleTimeString('en-US', {
+        timeZone: 'Asia/Jakarta',
+        hour12: false,
+        hour: '2-digit'
+      });
+      const hourJkt = parseInt(hourStr, 10);
+
+      // Rekap tidak hadir berlaku jika tanggal filter berada di masa lalu,
+      // ATAU tanggal filter adalah hari ini dan jam sekarang >= 15:00 WIB
+      const isPastDate = dateFilter < todayJkt;
+      const isTodayAndAfterCutoff = dateFilter === todayJkt && hourJkt >= 15;
+
+      if (isPastDate || isTodayAndAfterCutoff) {
+        // Dapatkan daftar nama karyawan yang sudah check-in hari ini (case-insensitive)
+        const checkedInNames = actualMatches.map((r) => r.name.toLowerCase());
+
+        // Cari karyawan terdaftar yang belum absen hari ini dan sudah terdaftar saat tanggal filter
+        const absentRecords = settingsEmployees
+          .filter((emp) => {
+            const empName = typeof emp === 'string' ? emp : emp.name;
+            const addedDate = typeof emp === 'string' ? '1970-01-01' : (emp.addedAt || '1970-01-01');
+            
+            const isMatchName = empName.toLowerCase().includes(searchTerm.toLowerCase());
+            const hasCheckedIn = checkedInNames.includes(empName.toLowerCase());
+            const isAlreadyAdded = dateFilter >= addedDate;
+
+            return isMatchName && !hasCheckedIn && isAlreadyAdded;
+          })
+          .map((emp) => {
+            const empName = typeof emp === 'string' ? emp : emp.name;
+            return {
+              id: `absent-${empName}-${dateFilter}`,
+              name: empName,
+              photoUrl: null,
+              timestamp: `${dateFilter}T23:59:59.000Z`, // Let them sort at the bottom
+              status: 'Tidak Hadir',
+            };
+          });
+
+        // Urutkan check-in asli (Hadir/Telat) di atas, Tidak Hadir di bawah
+        return [...actualMatches, ...absentRecords];
+      }
     }
-    return matchName && matchDate;
-  });
+
+    return actualMatches;
+  })();
 
   // Paginasi
   const totalPages = Math.ceil(filteredRecords.length / ITEMS_PER_PAGE);
@@ -372,6 +511,17 @@ export default function AdminDashboard() {
           <Link href="/" className="btn btn-secondary" style={{ fontSize: '0.82rem', padding: '0.5rem 0.85rem' }}>
             Halaman Absen
           </Link>
+          <button 
+            onClick={() => { fetchSettings(); setShowSettingsModal(true); }} 
+            className="btn btn-secondary" 
+            style={{ fontSize: '0.82rem', padding: '0.5rem 0.85rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+            Pengaturan
+          </button>
           <button onClick={handleLogout} className="btn btn-danger" style={{ fontSize: '0.82rem', padding: '0.5rem 0.85rem' }}>
             Logout
           </button>
@@ -754,37 +904,64 @@ export default function AdminDashboard() {
                     <tr key={record.id}>
                       <td style={{ width: '42px' }}>{startIndex + index + 1}</td>
                       <td style={{ width: '80px' }}>
-                        <div 
-                          style={{ 
-                            width: '56px', height: '42px', borderRadius: '6px', overflow: 'hidden', 
-                            border: '1px solid var(--border-color)', cursor: 'zoom-in',
-                            boxShadow: '0 1px 3px rgba(0,0,0,0.06)'
-                          }}
-                          onClick={() => setSelectedPhoto(record)}
-                          title="Klik untuk memperbesar"
-                        >
-                          <img 
-                            src={getSecurePhotoUrl(record.photoUrl)} alt={record.name}
-                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                            onError={(e) => {
-                              e.target.style.display = 'none';
-                              e.target.parentElement.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;background:#f1f5f9;color:#94a3b8;font-size:0.6rem;text-align:center">Foto</div>';
+                        {record.photoUrl ? (
+                          <div 
+                            style={{ 
+                              width: '56px', height: '42px', borderRadius: '6px', overflow: 'hidden', 
+                              border: '1px solid var(--border-color)', cursor: 'zoom-in',
+                              boxShadow: '0 1px 3px rgba(0,0,0,0.06)'
                             }}
-                          />
-                        </div>
+                            onClick={() => setSelectedPhoto(record)}
+                            title="Klik untuk memperbesar"
+                          >
+                            <img 
+                              src={getSecurePhotoUrl(record.photoUrl)} alt={record.name}
+                              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                              onError={(e) => {
+                                e.target.style.display = 'none';
+                                e.target.parentElement.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;background:#f1f5f9;color:#94a3b8;font-size:0.6rem;text-align:center">Foto</div>';
+                              }}
+                            />
+                          </div>
+                        ) : (
+                          <div 
+                            style={{ 
+                              width: '56px', height: '42px', borderRadius: '6px', 
+                              border: '1px dashed var(--border-color)', display: 'flex', 
+                              alignItems: 'center', justifyContent: 'center', 
+                              background: '#f8fafc', color: 'var(--text-muted)', fontSize: '0.65rem' 
+                            }}
+                          >
+                            —
+                          </div>
+                        )}
                       </td>
                       <td style={{ fontWeight: '600', color: 'var(--text-primary)', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{record.name}</td>
                       <td>{formatDate(record.timestamp)}</td>
-                      <td style={{ fontFamily: 'monospace' }}>{formatTime(record.timestamp)}</td>
-                      <td><span className="badge badge-success">Hadir</span></td>
+                      <td style={{ fontFamily: 'monospace' }}>
+                        {record.status === 'Tidak Hadir' ? '—' : formatTime(record.timestamp)}
+                      </td>
+                      <td>
+                        <span className={`badge ${
+                          record.status === 'Telat' ? 'badge-warning' : 
+                          record.status === 'Tidak Hadir' ? 'badge-danger' : 
+                          'badge-success'
+                        }`}>
+                          {record.status || 'Hadir'}
+                        </span>
+                      </td>
                       <td style={{ textAlign: 'center' }}>
-                        <button className="btn-icon-delete" onClick={() => setDeleteTarget(record)} title="Hapus">
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="3 6 5 6 21 6" />
-                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                            <line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" />
-                          </svg>
-                        </button>
+                        {record.status !== 'Tidak Hadir' ? (
+                          <button className="btn-icon-delete" onClick={() => setDeleteTarget(record)} title="Hapus">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                              <line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" />
+                            </svg>
+                          </button>
+                        ) : (
+                          <span style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>—</span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -885,6 +1062,171 @@ export default function AdminDashboard() {
                   {deleteLoading ? 'Menghapus...' : 'Ya, Hapus'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Pengaturan */}
+      {showSettingsModal && (
+        <div className="modal-overlay" onClick={() => !settingsLoading && setShowSettingsModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '540px' }}>
+            <div className="modal-header">
+              <h3 style={{ fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                </svg>
+                Pengaturan Absensi
+              </h3>
+              <button 
+                onClick={() => !settingsLoading && setShowSettingsModal(false)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: settingsLoading ? 'not-allowed' : 'pointer', fontSize: '1.25rem' }}
+                disabled={settingsLoading}
+              >&times;</button>
+            </div>
+            <div className="modal-body" style={{ padding: '1.25rem' }}>
+              
+              {/* Form Input Jam Masuk (Batas Telat) */}
+              <div className="form-group" style={{ marginBottom: '1.5rem' }}>
+                <label className="form-label">Jam Batas Masuk (Format WIB)</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <input 
+                    type="time" 
+                    className="form-input" 
+                    value={settingsLateTime}
+                    onChange={(e) => setSettingsLateTime(e.target.value)}
+                    disabled={settingsLoading}
+                    style={{ flex: 1 }}
+                  />
+                  <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: '600' }}>WIB</span>
+                </div>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                  Absensi yang terkirim melebihi batas jam masuk ini otomatis akan berstatus "Telat".
+                </p>
+              </div>
+
+              {/* Input Daftar Karyawan */}
+              <div className="form-group" style={{ marginBottom: '1.25rem' }}>
+                <label className="form-label">Daftar Karyawan Terdaftar ({settingsEmployees.length})</label>
+                
+                {/* Kolom Tambah Karyawan */}
+                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.85rem' }}>
+                  <input 
+                    type="text" 
+                    className="form-input" 
+                    placeholder="Masukkan nama karyawan baru..."
+                    value={newEmployeeName}
+                    onChange={(e) => setNewEmployeeName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddEmployee();
+                      }
+                    }}
+                    disabled={settingsLoading}
+                    style={{ flex: 1 }}
+                  />
+                  <button 
+                    type="button" 
+                    className="btn btn-primary"
+                    onClick={handleAddEmployee}
+                    disabled={settingsLoading || !newEmployeeName.trim()}
+                    style={{ padding: '0.6rem 1rem', fontSize: '0.85rem' }}
+                  >
+                    Tambah
+                  </button>
+                </div>
+
+                {/* List Karyawan */}
+                <div style={{ 
+                  maxHeight: '180px', 
+                  overflowY: 'auto', 
+                  border: '1px solid var(--border-color)', 
+                  borderRadius: 'var(--radius-md)',
+                  background: 'var(--bg-primary)'
+                }}>
+                  {settingsEmployees.length === 0 ? (
+                    <p style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                      Belum ada nama karyawan yang ditambahkan.
+                    </p>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      {settingsEmployees.map((emp, idx) => {
+                        const empName = typeof emp === 'string' ? emp : emp.name;
+                        const addedDate = typeof emp === 'string' ? null : emp.addedAt;
+                        return (
+                          <div 
+                            key={idx}
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              padding: '0.55rem 0.85rem',
+                              borderBottom: idx === settingsEmployees.length - 1 ? 'none' : '1px solid var(--border-color)',
+                              fontSize: '0.88rem',
+                            }}
+                          >
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                              <span style={{ fontWeight: '500', color: 'var(--text-primary)' }}>{empName}</span>
+                              {addedDate && (
+                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Mulai rekap: {addedDate}</span>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveEmployee(empName)}
+                              disabled={settingsLoading}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: 'var(--error)',
+                                cursor: 'pointer',
+                                padding: '0.2rem',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                opacity: 0.8,
+                              }}
+                              onMouseEnter={(e) => e.currentTarget.style.opacity = 1}
+                              onMouseLeave={(e) => e.currentTarget.style.opacity = 0.8}
+                              title={`Hapus ${empName}`}
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                <line x1="18" y1="6" x2="6" y2="18" />
+                                <line x1="6" y1="6" x2="18" y2="18" />
+                              </svg>
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Tombol Simpan/Batal */}
+              <div style={{ display: 'flex', gap: '0.65rem', justifyContent: 'flex-end', borderTop: '1px solid var(--border-color)', paddingTop: '1.25rem', marginTop: '1.25rem' }}>
+                <button 
+                  type="button" 
+                  className="btn btn-secondary" 
+                  onClick={() => setShowSettingsModal(false)} 
+                  disabled={settingsLoading}
+                  style={{ padding: '0.55rem 1rem', fontSize: '0.88rem' }}
+                >
+                  Batal
+                </button>
+                <button 
+                  type="button" 
+                  className="btn btn-primary" 
+                  onClick={handleSaveSettings} 
+                  disabled={settingsLoading}
+                  style={{ padding: '0.55rem 1rem', fontSize: '0.88rem' }}
+                >
+                  {settingsLoading ? 'Menyimpan...' : 'Simpan Pengaturan'}
+                </button>
+              </div>
+
             </div>
           </div>
         </div>

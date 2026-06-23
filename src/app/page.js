@@ -10,9 +10,28 @@ export default function AttendancePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [status, setStatus] = useState(null); // { type: 'success' | 'error', text: '' }
 
+  const [employeeList, setEmployeeList] = useState([]);
+
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
+
+  // Ambil pengaturan karyawan saat halaman dimuat
+  useEffect(() => {
+    fetchPublicSettings();
+  }, []);
+
+  const fetchPublicSettings = async () => {
+    try {
+      const res = await fetch('/api/settings/public');
+      if (res.ok) {
+        const data = await res.json();
+        setEmployeeList(data.employees || []);
+      }
+    } catch (err) {
+      console.error('Gagal memuat daftar karyawan:', err);
+    }
+  };
 
   // Menghentikan kamera saat komponen dilepas (unmount)
   useEffect(() => {
@@ -119,8 +138,10 @@ export default function AttendancePage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!name.trim()) {
-      setStatus({ type: 'error', text: 'Silakan masukkan nama Anda.' });
+    const activeName = name;
+    
+    if (!activeName || !activeName.trim()) {
+      setStatus({ type: 'error', text: 'Silakan masukkan atau pilih nama Anda.' });
       return;
     }
     if (!photo) {
@@ -138,7 +159,7 @@ export default function AttendancePage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          name: name.trim(),
+          name: activeName.trim(),
           photo: photo,
         }),
       });
@@ -213,22 +234,43 @@ export default function AttendancePage() {
           )}
 
           <form onSubmit={handleSubmit}>
-            {/* Input Nama */}
-            <div className="form-group">
-              <label htmlFor="name-input" className="form-label">
-                Nama Lengkap Karyawan
-              </label>
-              <input
-                id="name-input"
-                type="text"
-                className="form-input"
-                placeholder="Masukkan nama lengkap Anda..."
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                disabled={isLoading}
-                required
-              />
-            </div>
+             {/* Input Nama */}
+             <div className="form-group">
+               <label htmlFor="name-input" className="form-label">
+                 Nama Lengkap Karyawan
+               </label>
+               {employeeList.length > 0 ? (
+                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                   <select
+                     id="name-select"
+                     className="form-select"
+                     value={name}
+                     onChange={(e) => setName(e.target.value)}
+                     disabled={isLoading}
+                     style={{ width: '100%' }}
+                     required
+                   >
+                     <option value="">-- Pilih Nama Lengkap Anda --</option>
+                     {employeeList.map((empName) => (
+                       <option key={empName} value={empName}>
+                         {empName}
+                       </option>
+                     ))}
+                   </select>
+                 </div>
+               ) : (
+                 <input
+                   id="name-input"
+                   type="text"
+                   className="form-input"
+                   placeholder="Masukkan nama lengkap Anda..."
+                   value={name}
+                   onChange={(e) => setName(e.target.value)}
+                   disabled={isLoading}
+                   required
+                 />
+               )}
+             </div>
 
             {/* Video Camera Container */}
             <div className="form-group" style={{ marginBottom: '1.75rem' }}>

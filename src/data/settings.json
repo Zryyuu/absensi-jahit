@@ -1,0 +1,15 @@
+{
+  "employees": [
+    { "name": "Adel", "addedAt": "2026-06-23" },
+    { "name": "Fiki", "addedAt": "2026-06-23" },
+    { "name": "Dimas", "addedAt": "2026-06-23" },
+    { "name": "Andre", "addedAt": "2026-06-23" },
+    { "name": "Farel", "addedAt": "2026-06-23" },
+    { "name": "Agel", "addedAt": "2026-06-23" },
+    { "name": "Izah", "addedAt": "2026-06-23" },
+    { "name": "Yudhi", "addedAt": "2026-06-23" },
+    { "name": "Mitha", "addedAt": "2026-06-23" },
+    { "name": "Riski", "addedAt": "2026-06-23" }
+  ],
+  "lateTime": "08:15"
+}
