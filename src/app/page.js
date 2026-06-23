@@ -10,7 +10,7 @@ export default function AttendancePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [status, setStatus] = useState(null); // { type: 'success' | 'error', text: '' }
 
-  const [employeeList, setEmployeeList] = useState([]);
+  const [employeeList, setEmployeeList] = useState(null);
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -26,10 +26,15 @@ export default function AttendancePage() {
       const res = await fetch('/api/settings/public');
       if (res.ok) {
         const data = await res.json();
-        setEmployeeList(data.employees || []);
+        // Urutkan nama karyawan secara alfabetis
+        const sorted = (data.employees || []).sort((a, b) => a.localeCompare(b));
+        setEmployeeList(sorted);
+      } else {
+        setEmployeeList([]);
       }
     } catch (err) {
       console.error('Gagal memuat daftar karyawan:', err);
+      setEmployeeList([]);
     }
   };
 
@@ -239,7 +244,11 @@ export default function AttendancePage() {
                <label htmlFor="name-input" className="form-label">
                  Nama Lengkap Karyawan
                </label>
-               {employeeList.length > 0 ? (
+               {employeeList === null ? (
+                 <select className="form-select" disabled style={{ width: '100%' }}>
+                   <option>Memuat daftar nama...</option>
+                 </select>
+               ) : employeeList.length > 0 ? (
                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
                    <select
                      id="name-select"
