@@ -258,25 +258,24 @@ export default function AdminDashboard() {
       return matchName && matchDate;
     });
 
-    // 2. Jika filter tanggal AKTIF, gabungkan dengan karyawan yang "Tidak Hadir" hari itu
+    // 2. Jika filter tanggal AKTIF, gabungkan dengan karyawan yang "Tidak Hadir" / "Belum Hadir" hari itu
     if (dateFilter) {
       // Dapatkan tanggal hari ini di Jakarta (WIB)
       const now = new Date();
       const todayJkt = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }); // YYYY-MM-DD format
       
-      const hourStr = now.toLocaleTimeString('en-US', {
-        timeZone: 'Asia/Jakarta',
-        hour12: false,
-        hour: '2-digit'
-      });
-      const hourJkt = parseInt(hourStr, 10);
+      // Hanya rekap jika tanggal filter adalah hari ini atau masa lalu
+      if (dateFilter <= todayJkt) {
+        const hourStr = now.toLocaleTimeString('en-US', {
+          timeZone: 'Asia/Jakarta',
+          hour12: false,
+          hour: '2-digit'
+        });
+        const hourJkt = parseInt(hourStr, 10);
 
-      // Rekap tidak hadir berlaku jika tanggal filter berada di masa lalu,
-      // ATAU tanggal filter adalah hari ini dan jam sekarang >= 15:00 WIB
-      const isPastDate = dateFilter < todayJkt;
-      const isTodayAndAfterCutoff = dateFilter === todayJkt && hourJkt >= 15;
+        const isPastDate = dateFilter < todayJkt;
+        const statusLabel = (isPastDate || hourJkt >= 15) ? 'Tidak Hadir' : 'Belum Hadir';
 
-      if (isPastDate || isTodayAndAfterCutoff) {
         // Dapatkan daftar nama karyawan yang sudah check-in hari ini (case-insensitive)
         const checkedInNames = actualMatches.map((r) => r.name.toLowerCase());
 
@@ -299,11 +298,11 @@ export default function AdminDashboard() {
               name: empName,
               photoUrl: null,
               timestamp: `${dateFilter}T23:59:59.000Z`, // Let them sort at the bottom
-              status: 'Tidak Hadir',
+              status: statusLabel,
             };
           });
 
-        // Urutkan check-in asli (Hadir/Telat) di atas, Tidak Hadir di bawah
+        // Urutkan check-in asli (Hadir/Telat) di atas, Tidak Hadir/Belum Hadir di bawah
         return [...actualMatches, ...absentRecords];
       }
     }
@@ -382,12 +381,13 @@ export default function AdminDashboard() {
     });
 
     dataToExport.forEach((rec, index) => {
+      const isAbsent = rec.status === 'Tidak Hadir' || rec.status === 'Belum Hadir';
       const row = sheet.addRow({
         no: index + 1,
         nama: rec.name,
         tanggal: formatDate(rec.timestamp),
-        waktu: formatTime(rec.timestamp),
-        status: 'Hadir',
+        waktu: isAbsent ? '—' : formatTime(rec.timestamp),
+        status: rec.status || 'Hadir',
       });
       row.height = 22;
       row.eachCell((cell, colNumber) => {
@@ -939,19 +939,19 @@ export default function AdminDashboard() {
                       <td style={{ fontWeight: '600', color: 'var(--text-primary)', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{record.name}</td>
                       <td>{formatDate(record.timestamp)}</td>
                       <td style={{ fontFamily: 'monospace' }}>
-                        {record.status === 'Tidak Hadir' ? '—' : formatTime(record.timestamp)}
+                        {(record.status === 'Tidak Hadir' || record.status === 'Belum Hadir') ? '—' : formatTime(record.timestamp)}
                       </td>
                       <td>
                         <span className={`badge ${
                           record.status === 'Telat' ? 'badge-warning' : 
-                          record.status === 'Tidak Hadir' ? 'badge-danger' : 
+                          (record.status === 'Tidak Hadir' || record.status === 'Belum Hadir') ? 'badge-danger' : 
                           'badge-success'
                         }`}>
                           {record.status || 'Hadir'}
                         </span>
                       </td>
                       <td style={{ textAlign: 'center' }}>
-                        {record.status !== 'Tidak Hadir' ? (
+                        {(record.status !== 'Tidak Hadir' && record.status !== 'Belum Hadir') ? (
                           <button className="btn-icon-delete" onClick={() => setDeleteTarget(record)} title="Hapus">
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                               <polyline points="3 6 5 6 21 6" />
