@@ -302,3 +302,26 @@ export async function saveSettings(settingsObject) {
   return settings;
 }
 
+/**
+ * Menyimpan seluruh daftar rekaman absensi (menimpa data lama).
+ * @param {Array} records - Array data absensi
+ */
+export async function saveAllRecords(records) {
+  const missingVars = getMissingEnvVars();
+  if (isProduction() && missingVars.length > 0) {
+    throw new Error(`Database Cloud gagal. Env vars KV belum diset.`);
+  }
+
+  if (isCloudEnabled()) {
+    await kv.del('attendance_records');
+    if (records.length > 0) {
+      // rpush untuk mempertahankan urutan array
+      await kv.rpush('attendance_records', ...records);
+    }
+  } else {
+    const dataDir = path.join(process.cwd(), 'src', 'data');
+    const filePath = path.join(dataDir, 'db.json');
+    await fs.writeFile(filePath, JSON.stringify(records, null, 2));
+  }
+}
+
