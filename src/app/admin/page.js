@@ -245,7 +245,7 @@ export default function AdminDashboard() {
     return `/api/admin/photo?url=${encodeURIComponent(photoUrl)}`;
   };
 
-  // Filter records berdasarkan nama dan tanggal (termasuk status Tidak Hadir jika tanggal difilter)
+  // Filter records berdasarkan nama dan tanggal (termasuk status Tidak Hadir/Belum Hadir)
   const filteredRecords = (() => {
     // 1. Dapatkan check-in riil yang cocok dengan filter nama & tanggal
     const actualMatches = records.filter((rec) => {
@@ -258,53 +258,60 @@ export default function AdminDashboard() {
       return matchName && matchDate;
     });
 
-    // 2. Jika filter tanggal AKTIF, gabungkan dengan karyawan yang "Tidak Hadir" / "Belum Hadir" hari itu
-    if (dateFilter) {
-      // Dapatkan tanggal hari ini di Jakarta (WIB)
-      const now = new Date();
-      const todayJkt = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }); // YYYY-MM-DD format
-      
-      // Hanya rekap jika tanggal filter adalah hari ini atau masa lalu
-      if (dateFilter <= todayJkt) {
-        const hourStr = now.toLocaleTimeString('en-US', {
-          timeZone: 'Asia/Jakarta',
-          hour12: false,
-          hour: '2-digit'
+    // Tentukan tanggal rekap absent: jika dateFilter diset, gunakan dateFilter. Jika tidak, gunakan hari ini (todayJkt).
+    const now = new Date();
+    const todayJkt = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }); // YYYY-MM-DD format
+    const activeDate = dateFilter || todayJkt;
+
+    // Rekap absent berlaku jika:
+    // - dateFilter diset dan dateFilter <= todayJkt
+    // - ATAU dateFilter TIDAK diset (maka rekap untuk todayJkt)
+    const shouldRekap = !dateFilter || (dateFilter <= todayJkt);
+
+    if (shouldRekap) {
+      const hourStr = now.toLocaleTimeString('en-US', {
+        timeZone: 'Asia/Jakarta',
+        hour12: false,
+        hour: '2-digit'
+      });
+      const hourJkt = parseInt(hourStr, 10);
+
+      const isPastDate = activeDate < todayJkt;
+      const statusLabel = (isPastDate || hourJkt >= 15) ? 'Tidak Hadir' : 'Belum Hadir';
+
+      // Dapatkan daftar nama karyawan yang sudah check-in pada activeDate (case-insensitive)
+      const checkedInNames = records
+        .filter(rec => {
+          const recDate = new Date(rec.timestamp).toISOString().split('T')[0];
+          return recDate === activeDate;
+        })
+        .map((r) => r.name.toLowerCase());
+
+      // Cari karyawan terdaftar yang belum absen pada activeDate
+      const absentRecords = settingsEmployees
+        .filter((emp) => {
+          const empName = typeof emp === 'string' ? emp : emp.name;
+          const addedDate = typeof emp === 'string' ? '1970-01-01' : (emp.addedAt || '1970-01-01');
+          
+          const isMatchName = empName.toLowerCase().includes(searchTerm.toLowerCase());
+          const hasCheckedIn = checkedInNames.includes(empName.toLowerCase());
+          const isAlreadyAdded = activeDate >= addedDate;
+
+          return isMatchName && !hasCheckedIn && isAlreadyAdded;
+        })
+        .map((emp) => {
+          const empName = typeof emp === 'string' ? emp : emp.name;
+          return {
+            id: `absent-${empName}-${activeDate}`,
+            name: empName,
+            photoUrl: null,
+            timestamp: `${activeDate}T12:00:00.000`, // Menggunakan waktu lokal siang agar tidak bergeser hari karena timezone browser
+            status: statusLabel,
+          };
         });
-        const hourJkt = parseInt(hourStr, 10);
 
-        const isPastDate = dateFilter < todayJkt;
-        const statusLabel = (isPastDate || hourJkt >= 15) ? 'Tidak Hadir' : 'Belum Hadir';
-
-        // Dapatkan daftar nama karyawan yang sudah check-in hari ini (case-insensitive)
-        const checkedInNames = actualMatches.map((r) => r.name.toLowerCase());
-
-        // Cari karyawan terdaftar yang belum absen hari ini dan sudah terdaftar saat tanggal filter
-        const absentRecords = settingsEmployees
-          .filter((emp) => {
-            const empName = typeof emp === 'string' ? emp : emp.name;
-            const addedDate = typeof emp === 'string' ? '1970-01-01' : (emp.addedAt || '1970-01-01');
-            
-            const isMatchName = empName.toLowerCase().includes(searchTerm.toLowerCase());
-            const hasCheckedIn = checkedInNames.includes(empName.toLowerCase());
-            const isAlreadyAdded = dateFilter >= addedDate;
-
-            return isMatchName && !hasCheckedIn && isAlreadyAdded;
-          })
-          .map((emp) => {
-            const empName = typeof emp === 'string' ? emp : emp.name;
-            return {
-              id: `absent-${empName}-${dateFilter}`,
-              name: empName,
-              photoUrl: null,
-              timestamp: `${dateFilter}T23:59:59.000Z`, // Let them sort at the bottom
-              status: statusLabel,
-            };
-          });
-
-        // Urutkan check-in asli (Hadir/Telat) di atas, Tidak Hadir/Belum Hadir di bawah
-        return [...actualMatches, ...absentRecords];
-      }
+      // Urutkan check-in asli (Hadir/Telat) di atas, Tidak Hadir/Belum Hadir di bawah
+      return [...actualMatches, ...absentRecords];
     }
 
     return actualMatches;
