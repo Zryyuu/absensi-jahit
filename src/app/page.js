@@ -11,6 +11,8 @@ export default function AttendancePage() {
   const [status, setStatus] = useState(null); // { type: 'success' | 'error', text: '' }
 
   const [employeeList, setEmployeeList] = useState(null);
+  const [isHoliday, setIsHoliday] = useState(false);
+  const [holidayName, setHolidayName] = useState('');
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -29,6 +31,19 @@ export default function AttendancePage() {
         // Urutkan nama karyawan secara alfabetis
         const sorted = (data.employees || []).sort((a, b) => a.localeCompare(b));
         setEmployeeList(sorted);
+
+        // Deteksi hari libur
+        const now = new Date();
+        const jktDayStr = now.toLocaleDateString('en-US', { timeZone: 'Asia/Jakarta', weekday: 'long' });
+        const todayJkt = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }); // YYYY-MM-DD format
+
+        if (jktDayStr === 'Sunday') {
+          setIsHoliday(true);
+          setHolidayName('Hari Minggu (Libur Mingguan)');
+        } else if (data.holidays && data.holidays.includes(todayJkt)) {
+          setIsHoliday(true);
+          setHolidayName('Hari Libur Kantor (Ditentukan Admin)');
+        }
       } else {
         setEmployeeList([]);
       }
@@ -279,6 +294,21 @@ export default function AttendancePage() {
             </div>
           )}
 
+          {/* Holiday Message */}
+          {isHoliday && (
+            <div className="alert-banner" style={{ marginBottom: '1.5rem', backgroundColor: '#fff7ed', borderColor: '#ffedd5', color: '#c2410c', display: 'flex', alignItems: 'flex-start', gap: '0.65rem' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ flexShrink: 0, marginTop: '0.15rem' }}>
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+              <div>
+                <strong style={{ display: 'block', fontSize: '0.88rem', fontWeight: 'bold', marginBottom: '0.15rem' }}>Absensi Ditutup (Hari Libur)</strong>
+                <span style={{ fontSize: '0.8rem', lineHeight: '1.3' }}>Hari ini adalah {holidayName}. Pengiriman absensi dinonaktifkan.</span>
+              </div>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit}>
              {/* Input Nama */}
              <div className="form-group">
@@ -296,7 +326,7 @@ export default function AttendancePage() {
                      className="form-select"
                      value={name}
                      onChange={(e) => setName(e.target.value)}
-                     disabled={isLoading}
+                     disabled={isLoading || isHoliday}
                      style={{ width: '100%' }}
                      required
                    >
@@ -316,7 +346,7 @@ export default function AttendancePage() {
                    placeholder="Masukkan nama lengkap Anda..."
                    value={name}
                    onChange={(e) => setName(e.target.value)}
-                   disabled={isLoading}
+                   disabled={isLoading || isHoliday}
                    required
                  />
                )}
@@ -360,13 +390,15 @@ export default function AttendancePage() {
                       <circle cx="12" cy="13" r="4"/>
                     </svg>
                     <p style={{ fontSize: '0.85rem', color: '#cbd5e1' }}>
-                      Kamera belum aktif. Berikan izin akses kamera untuk melakukan foto absensi.
+                      {isHoliday 
+                        ? 'Absensi dinonaktifkan karena hari libur.' 
+                        : 'Kamera belum aktif. Berikan izin akses kamera untuk melakukan foto absensi.'}
                     </p>
                     <button
                       type="button"
                       className="btn btn-primary"
                       onClick={startCamera}
-                      disabled={isLoading}
+                      disabled={isLoading || isHoliday}
                       style={{ fontSize: '0.85rem', padding: '0.5rem 1.25rem' }}
                     >
                       Aktifkan Kamera
@@ -397,7 +429,7 @@ export default function AttendancePage() {
                       type="button"
                       className="btn btn-secondary"
                       onClick={retakePhoto}
-                      disabled={isLoading}
+                      disabled={isLoading || isHoliday}
                       style={{ flex: 1 }}
                     >
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -425,7 +457,7 @@ export default function AttendancePage() {
               type="submit"
               className="btn btn-primary"
               style={{ width: '100%', padding: '0.9rem', fontSize: '1rem' }}
-              disabled={!name.trim() || !photo || isLoading}
+              disabled={!name.trim() || !photo || isLoading || isHoliday}
             >
               {isLoading ? 'Mengirim data...' : 'Kirim Absensi Sekarang'}
             </button>

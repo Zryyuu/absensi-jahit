@@ -255,36 +255,44 @@ export async function getSettings() {
       { name: "Riski", addedAt: "2026-06-23" }
     ],
     lateTime: '08:15',
+    holidays: [],
   };
 
+  let settings;
   if (isCloudEnabled()) {
     try {
       const data = await kv.get('attendance_settings');
-      return data || defaultSettings;
+      settings = data || defaultSettings;
     } catch (err) {
       console.error('Gagal mengambil pengaturan dari KV:', err);
-      return defaultSettings;
+      settings = defaultSettings;
     }
   } else {
     const filePath = path.join(process.cwd(), 'src', 'data', 'settings.json');
     try {
       const fileData = await fs.readFile(filePath, 'utf-8');
-      return JSON.parse(fileData);
+      settings = JSON.parse(fileData);
     } catch {
-      return defaultSettings;
+      settings = defaultSettings;
     }
   }
+
+  if (!settings.holidays) {
+    settings.holidays = [];
+  }
+  return settings;
 }
 
 /**
  * Menyimpan pengaturan absensi.
- * @param {object} settingsObject - Object berisi employees dan lateTime
+ * @param {object} settingsObject - Object berisi employees, lateTime, dan holidays
  * @returns {Promise<object>} Object pengaturan yang disimpan
  */
 export async function saveSettings(settingsObject) {
   const settings = {
     employees: settingsObject.employees || [],
     lateTime: settingsObject.lateTime || '08:00',
+    holidays: settingsObject.holidays || [],
   };
 
   if (isCloudEnabled()) {

@@ -8,6 +8,7 @@ export async function GET() {
       success: true,
       employees: (settings.employees || []).map(emp => typeof emp === 'string' ? emp : emp.name),
       lateTime: settings.lateTime || '08:15',
+      holidays: settings.holidays || [],
     });
   } catch (error) {
     console.error('API Error (Get Public Settings):', error);

@@ -44,7 +44,7 @@ export async function POST(request) {
     }
 
     const body = await request.json();
-    const { employees, lateTime } = body;
+    const { employees, lateTime, holidays } = body;
 
     if (!Array.isArray(employees)) {
       return NextResponse.json({ error: 'Daftar nama karyawan harus berupa array.' }, { status: 400 });
@@ -54,7 +54,11 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Format jam masuk tidak valid (harus HH:MM).' }, { status: 400 });
     }
 
-    const settings = await saveSettings({ employees, lateTime });
+    if (holidays && !Array.isArray(holidays)) {
+      return NextResponse.json({ error: 'Daftar tanggal libur harus berupa array.' }, { status: 400 });
+    }
+
+    const settings = await saveSettings({ employees, lateTime, holidays: holidays || [] });
     return NextResponse.json({ success: true, settings });
   } catch (error) {
     console.error('API Error (Post Settings):', error);

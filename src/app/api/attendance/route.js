@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { uploadPhoto, saveAttendance } from '@/lib/db';
+import { uploadPhoto, saveAttendance, getSettings } from '@/lib/db';
 
 // Rumus Haversine untuk menghitung jarak antara 2 koordinat (dalam meter)
 function getDistance(lat1, lon1, lat2, lon2) {
@@ -24,6 +24,22 @@ const MAX_RADIUS_METERS = 100; // Radius toleransi 100 meter
 
 export async function POST(request) {
   try {
+    const now = new Date();
+    
+    // 1. Cek apakah hari Minggu (WIB)
+    const jktDayStr = now.toLocaleDateString('en-US', { timeZone: 'Asia/Jakarta', weekday: 'long' });
+    if (jktDayStr === 'Sunday') {
+      return NextResponse.json({ error: 'Hari Minggu adalah hari libur. Absensi dinonaktifkan.' }, { status: 400 });
+    }
+
+    // 2. Cek apakah hari libur kustom (WIB)
+    const settings = await getSettings();
+    const holidays = settings.holidays || [];
+    const todayJkt = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }); // YYYY-MM-DD format
+    if (holidays.includes(todayJkt)) {
+      return NextResponse.json({ error: `Hari ini (${todayJkt}) adalah hari libur yang ditentukan di pengaturan. Absensi dinonaktifkan.` }, { status: 400 });
+    }
+
     const body = await request.json();
     const { name, photo, latitude, longitude } = body;
 

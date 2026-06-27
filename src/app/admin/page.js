@@ -27,7 +27,9 @@ export default function AdminDashboard() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [settingsEmployees, setSettingsEmployees] = useState([]);
   const [settingsLateTime, setSettingsLateTime] = useState('08:15');
+  const [settingsHolidays, setSettingsHolidays] = useState([]);
   const [newEmployeeName, setNewEmployeeName] = useState('');
+  const [newHolidayDate, setNewHolidayDate] = useState('');
   const [settingsLoading, setSettingsLoading] = useState(false);
 
   const [isLoading, setIsLoading] = useState(true);
@@ -60,6 +62,7 @@ export default function AdminDashboard() {
         if (data.settings) {
           setSettingsEmployees(data.settings.employees || []);
           setSettingsLateTime(data.settings.lateTime || '08:15');
+          setSettingsHolidays(data.settings.holidays || []);
         }
       }
     } catch (err) {
@@ -77,6 +80,7 @@ export default function AdminDashboard() {
         body: JSON.stringify({
           employees: settingsEmployees,
           lateTime: settingsLateTime,
+          holidays: settingsHolidays,
         }),
       });
       const data = await res.json();
@@ -123,6 +127,22 @@ export default function AdminDashboard() {
         const nameVal = typeof emp === 'string' ? emp : emp.name;
         return nameVal !== nameToRemove;
       }));
+    }
+  };
+
+  const handleAddHoliday = () => {
+    if (!newHolidayDate) return;
+    if (settingsHolidays.includes(newHolidayDate)) {
+      alert('Tanggal libur ini sudah ditentukan.');
+      return;
+    }
+    setSettingsHolidays((prev) => [...prev, newHolidayDate].sort());
+    setNewHolidayDate('');
+  };
+
+  const handleRemoveHoliday = (dateToRemove) => {
+    if (confirm(`Yakin ingin menghapus tanggal libur "${dateToRemove}"?`)) {
+      setSettingsHolidays((prev) => prev.filter((d) => d !== dateToRemove));
     }
   };
 
@@ -288,6 +308,14 @@ export default function AdminDashboard() {
     for (const date of datesToProcess) {
       // Rekap absent hanya berlaku untuk tanggal hari ini dan hari-hari sebelumnya (tidak boleh masa depan)
       if (date > todayJkt) continue;
+
+      // 1. Lewati rekap jika hari Minggu (getDay === 0)
+      const isSunday = new Date(date + 'T12:00:00').getDay() === 0;
+      
+      // 2. Lewati rekap jika tanggal libur kustom ditentukan oleh admin
+      const isCustomHoliday = settingsHolidays.includes(date);
+
+      if (isSunday || isCustomHoliday) continue;
 
       const isPastDate = date < todayJkt;
       const statusLabel = (isPastDate || hourJkt >= 15) ? 'Tidak Hadir' : 'Belum Hadir';
@@ -1266,6 +1294,91 @@ export default function AdminDashboard() {
                           </div>
                         );
                       })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Input Tanggal Libur Kustom */}
+              <div className="form-group" style={{ marginBottom: '1.25rem' }}>
+                <label className="form-label">Daftar Tanggal Libur Kustom ({settingsHolidays.length})</label>
+                
+                {/* Kolom Tambah Libur */}
+                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.85rem' }}>
+                  <input 
+                    type="date" 
+                    className="form-input" 
+                    value={newHolidayDate}
+                    onChange={(e) => setNewHolidayDate(e.target.value)}
+                    disabled={settingsLoading}
+                    style={{ flex: 1 }}
+                  />
+                  <button 
+                    type="button" 
+                    className="btn btn-primary"
+                    onClick={handleAddHoliday}
+                    disabled={settingsLoading || !newHolidayDate}
+                    style={{ padding: '0.6rem 1rem', fontSize: '0.85rem' }}
+                  >
+                    Tambah Libur
+                  </button>
+                </div>
+
+                {/* List Tanggal Libur */}
+                <div style={{ 
+                  maxHeight: '120px', 
+                  overflowY: 'auto', 
+                  border: '1px solid var(--border-color)', 
+                  borderRadius: 'var(--radius-md)',
+                  background: 'var(--bg-primary)'
+                }}>
+                  {settingsHolidays.length === 0 ? (
+                    <p style={{ padding: '0.75rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                      Belum ada tanggal libur kustom yang ditambahkan.
+                    </p>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      {settingsHolidays.map((hDate, idx) => (
+                        <div 
+                          key={idx}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '0.45rem 0.75rem',
+                            borderBottom: idx === settingsHolidays.length - 1 ? 'none' : '1px solid var(--border-color)',
+                            fontSize: '0.85rem',
+                          }}
+                        >
+                          <span style={{ fontWeight: '500', color: 'var(--text-primary)' }}>
+                            {formatDate(hDate + 'T12:00:00.000')} ({hDate})
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveHoliday(hDate)}
+                            disabled={settingsLoading}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              color: 'var(--error)',
+                              cursor: 'pointer',
+                              padding: '0.2rem',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              opacity: 0.8,
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.opacity = 1}
+                            onMouseLeave={(e) => e.currentTarget.style.opacity = 0.8}
+                            title={`Hapus Libur ${hDate}`}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                              <line x1="18" y1="6" x2="6" y2="18" />
+                              <line x1="6" y1="6" x2="18" y2="18" />
+                            </svg>
+                          </button>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
