@@ -78,7 +78,7 @@ export async function uploadPhoto(photoBase64) {
  * @param {string} photoUrl - URL foto karyawan
  * @returns {Promise<object>} Record absensi
  */
-export async function saveAttendance(name, photoUrl) {
+export async function saveAttendance(name, photoUrl, latitude = null, longitude = null, distance = null) {
   const timestamp = new Date().toISOString();
   
   // Hitung status (Hadir atau Telat) berdasarkan pengaturan jam masuk
@@ -109,6 +109,9 @@ export async function saveAttendance(name, photoUrl) {
     photoUrl,
     timestamp,
     status,
+    latitude,
+    longitude,
+    distance,
   };
 
   const missingVars = getMissingEnvVars();

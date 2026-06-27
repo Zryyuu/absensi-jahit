@@ -370,6 +370,7 @@ export default function AdminDashboard() {
       { header: 'Tanggal', key: 'tanggal', width: 24 },
       { header: 'Waktu', key: 'waktu', width: 14 },
       { header: 'Status', key: 'status', width: 12 },
+      { header: 'Jarak (Meter)', key: 'jarak', width: 16 },
     ];
 
     // Style header
@@ -395,6 +396,7 @@ export default function AdminDashboard() {
         tanggal: formatDate(rec.timestamp),
         waktu: isAbsent ? '—' : formatTime(rec.timestamp),
         status: rec.status || 'Hadir',
+        jarak: isAbsent ? '—' : (rec.distance !== undefined && rec.distance !== null ? `${rec.distance} m` : '—'),
       });
       row.height = 22;
       row.eachCell((cell, colNumber) => {
@@ -943,7 +945,18 @@ export default function AdminDashboard() {
                           </div>
                         )}
                       </td>
-                      <td style={{ fontWeight: '600', color: 'var(--text-primary)', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{record.name}</td>
+                      <td style={{ fontWeight: '600', color: 'var(--text-primary)', maxWidth: '160px' }}>
+                        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{record.name}</div>
+                        {record.distance !== undefined && record.distance !== null && (
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', fontWeight: 'normal', marginTop: '0.15rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ flexShrink: 0 }}>
+                              <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+                              <circle cx="12" cy="10" r="3" />
+                            </svg>
+                            <span>{record.distance}m dari kantor</span>
+                          </div>
+                        )}
+                      </td>
                       <td>{formatDate(record.timestamp)}</td>
                       <td style={{ fontFamily: 'monospace' }}>
                         {(record.status === 'Tidak Hadir' || record.status === 'Belum Hadir') ? '—' : formatTime(record.timestamp)}
@@ -1032,6 +1045,12 @@ export default function AdminDashboard() {
             <div style={{ padding: '1rem 1.25rem', borderTop: '1px solid var(--border-color)', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
               <p><strong>Nama:</strong> {selectedPhoto.name}</p>
               <p><strong>Waktu:</strong> {formatDate(selectedPhoto.timestamp)} — {formatTime(selectedPhoto.timestamp)}</p>
+              {selectedPhoto.distance !== undefined && selectedPhoto.distance !== null && (
+                <p style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', marginTop: '0.25rem' }}>
+                  <strong>Lokasi:</strong> 
+                  <span>{selectedPhoto.distance} meter dari kantor ({selectedPhoto.latitude.toFixed(6)}, {selectedPhoto.longitude.toFixed(6)})</span>
+                </p>
+              )}
             </div>
           </div>
         </div>

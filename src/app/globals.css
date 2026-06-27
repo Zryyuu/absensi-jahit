@@ -428,6 +428,12 @@ footer {
   color: #991b1b;
 }
 
+.alert-banner-info {
+  background-color: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e40af;
+}
+
 /* Mobile Media Queries for Better Responsiveness */
 
 /* Pagination Controls */
@@ -640,5 +646,14 @@ footer {
   .export-dropdown {
     right: auto;
     left: 0;
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
   }
 }

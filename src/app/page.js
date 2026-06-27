@@ -157,42 +157,79 @@ export default function AttendancePage() {
     setIsLoading(true);
     setStatus(null);
 
-    try {
-      const response = await fetch('/api/attendance', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: activeName.trim(),
-          photo: photo,
-        }),
-      });
+    if (!navigator.geolocation) {
+      setStatus({ type: 'error', text: 'Browser Anda tidak mendukung deteksi lokasi (GPS).' });
+      setIsLoading(false);
+      return;
+    }
 
-      const data = await response.json();
+    // Tampilkan status pencarian lokasi
+    setStatus({ type: 'info', text: 'Mendeteksi lokasi GPS Anda...' });
 
-      if (response.ok) {
-        setStatus({
-          type: 'success',
-          text: `Absensi berhasil! Terima kasih, ${data.record.name}.`,
-        });
-        setName('');
-        setPhoto(null);
-      } else {
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        try {
+          const response = await fetch('/api/attendance', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              name: activeName.trim(),
+              photo: photo,
+              latitude: latitude,
+              longitude: longitude,
+            }),
+          });
+
+          const data = await response.json();
+
+          if (response.ok) {
+            setStatus({
+              type: 'success',
+              text: `Absensi berhasil! Terima kasih, ${data.record.name}.`,
+            });
+            setName('');
+            setPhoto(null);
+          } else {
+            setStatus({
+              type: 'error',
+              text: data.error || 'Gagal memproses absensi.',
+            });
+          }
+        } catch (err) {
+          console.error('Error submit absensi:', err);
+          setStatus({
+            type: 'error',
+            text: 'Koneksi gagal. Periksa jaringan Anda dan coba lagi.',
+          });
+        } finally {
+          setIsLoading(false);
+        }
+      },
+      (error) => {
+        console.error('Error geolocation:', error);
+        let errorText = 'Gagal mendeteksi lokasi GPS Anda.';
+        if (error.code === error.PERMISSION_DENIED) {
+          errorText = 'Izin lokasi (GPS) ditolak. Harap izinkan akses lokasi di browser/perangkat Anda agar dapat melakukan absensi.';
+        } else if (error.code === error.POSITION_UNAVAILABLE) {
+          errorText = 'Informasi lokasi tidak tersedia. Pastikan GPS/Layanan Lokasi perangkat Anda sudah aktif.';
+        } else if (error.code === error.TIMEOUT) {
+          errorText = 'Waktu pencarian lokasi GPS habis. Silakan coba kembali di tempat terbuka.';
+        }
         setStatus({
           type: 'error',
-          text: data.error || 'Gagal memproses absensi.',
+          text: errorText,
         });
+        setIsLoading(false);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0,
       }
-    } catch (err) {
-      console.error('Error submit absensi:', err);
-      setStatus({
-        type: 'error',
-        text: 'Koneksi gagal. Periksa jaringan Anda dan coba lagi.',
-      });
-    } finally {
-      setIsLoading(false);
-    }
+    );
   };
 
   return (
@@ -226,6 +263,10 @@ export default function AttendancePage() {
               {status.type === 'success' ? (
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <path d="M20 6L9 17L4 12" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              ) : status.type === 'info' ? (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ animation: 'spin 1s linear infinite' }}>
+                  <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" strokeLinecap="round"/>
                 </svg>
               ) : (
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
