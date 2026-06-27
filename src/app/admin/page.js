@@ -258,63 +258,103 @@ export default function AdminDashboard() {
       return matchName && matchDate;
     });
 
-    // Tentukan tanggal rekap absent: jika dateFilter diset, gunakan dateFilter. Jika tidak, gunakan hari ini (todayJkt).
     const now = new Date();
     const todayJkt = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }); // YYYY-MM-DD format
-    const activeDate = dateFilter || todayJkt;
 
-    // Rekap absent berlaku jika:
-    // - dateFilter diset dan dateFilter <= todayJkt
-    // - ATAU dateFilter TIDAK diset (maka rekap untuk todayJkt)
-    const shouldRekap = !dateFilter || (dateFilter <= todayJkt);
+    // Dapatkan semua tanggal unik yang perlu diproses untuk rekap absen
+    const datesToProcess = dateFilter 
+      ? [dateFilter] 
+      : Array.from(new Set([
+          todayJkt, 
+          ...records.map(rec => {
+            try {
+              return new Date(rec.timestamp).toISOString().split('T')[0];
+            } catch {
+              return null;
+            }
+          }).filter(Boolean)
+        ]));
 
-    if (shouldRekap) {
-      const hourStr = now.toLocaleTimeString('en-US', {
-        timeZone: 'Asia/Jakarta',
-        hour12: false,
-        hour: '2-digit'
-      });
-      const hourJkt = parseInt(hourStr, 10);
+    const allAbsentRecords = [];
 
-      const isPastDate = activeDate < todayJkt;
+    // Baca waktu Jakarta saat ini untuk penentuan label "Belum Hadir" vs "Tidak Hadir" hari ini
+    const hourStr = now.toLocaleTimeString('en-US', {
+      timeZone: 'Asia/Jakarta',
+      hour12: false,
+      hour: '2-digit'
+    });
+    const hourJkt = parseInt(hourStr, 10);
+
+    for (const date of datesToProcess) {
+      // Rekap absent hanya berlaku untuk tanggal hari ini dan hari-hari sebelumnya (tidak boleh masa depan)
+      if (date > todayJkt) continue;
+
+      const isPastDate = date < todayJkt;
       const statusLabel = (isPastDate || hourJkt >= 15) ? 'Tidak Hadir' : 'Belum Hadir';
 
-      // Dapatkan daftar nama karyawan yang sudah check-in pada activeDate (case-insensitive)
+      // Dapatkan daftar nama karyawan yang sudah check-in pada tanggal ini (case-insensitive)
       const checkedInNames = records
         .filter(rec => {
-          const recDate = new Date(rec.timestamp).toISOString().split('T')[0];
-          return recDate === activeDate;
+          try {
+            return new Date(rec.timestamp).toISOString().split('T')[0] === date;
+          } catch {
+            return false;
+          }
         })
         .map((r) => r.name.toLowerCase());
 
-      // Cari karyawan terdaftar yang belum absen pada activeDate
-      const absentRecords = settingsEmployees
+      // Cari karyawan terdaftar yang belum absen pada tanggal ini
+      const absentForDate = settingsEmployees
         .filter((emp) => {
           const empName = typeof emp === 'string' ? emp : emp.name;
           const addedDate = typeof emp === 'string' ? '1970-01-01' : (emp.addedAt || '1970-01-01');
           
           const isMatchName = empName.toLowerCase().includes(searchTerm.toLowerCase());
           const hasCheckedIn = checkedInNames.includes(empName.toLowerCase());
-          const isAlreadyAdded = activeDate >= addedDate;
+          const isAlreadyAdded = date >= addedDate;
 
           return isMatchName && !hasCheckedIn && isAlreadyAdded;
         })
         .map((emp) => {
           const empName = typeof emp === 'string' ? emp : emp.name;
           return {
-            id: `absent-${empName}-${activeDate}`,
+            id: `absent-${empName}-${date}`,
             name: empName,
             photoUrl: null,
-            timestamp: `${activeDate}T12:00:00.000`, // Menggunakan waktu lokal siang agar tidak bergeser hari karena timezone browser
+            timestamp: `${date}T12:00:00.000`, // local noon
             status: statusLabel,
           };
         });
 
-      // Urutkan check-in asli (Hadir/Telat) di atas, Tidak Hadir/Belum Hadir di bawah
-      return [...actualMatches, ...absentRecords];
+      allAbsentRecords.push(...absentForDate);
     }
 
-    return actualMatches;
+    // Gabungkan records riil dan absen
+    const combined = [...actualMatches, ...allAbsentRecords];
+
+    // Urutkan berdasarkan tanggal DESC, lalu status hadir di atas, lalu waktu DESC (untuk hadir), lalu nama ASC (untuk absen)
+    combined.sort((a, b) => {
+      const dateA = new Date(a.timestamp).toISOString().split('T')[0];
+      const dateB = new Date(b.timestamp).toISOString().split('T')[0];
+      if (dateA !== dateB) {
+        return dateB.localeCompare(dateA);
+      }
+
+      const isAbsentA = a.status === 'Tidak Hadir' || a.status === 'Belum Hadir';
+      const isAbsentB = b.status === 'Tidak Hadir' || b.status === 'Belum Hadir';
+
+      if (isAbsentA !== isAbsentB) {
+        return isAbsentA ? 1 : -1;
+      }
+
+      if (!isAbsentA) {
+        return new Date(b.timestamp) - new Date(a.timestamp);
+      }
+
+      return a.name.localeCompare(b.name);
+    });
+
+    return combined;
   })();
 
   // Paginasi
